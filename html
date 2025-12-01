@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { background-color: #f4f6f9; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    .card { margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: none; }
+    .card-header { font-weight: bold; color: white; }
+    .header-rakuten { background-color: #BF0000; } 
+    .header-choice { background-color: #00B900; } 
+    .header-total { background-color: #2c3e50; } 
+    .header-history { background-color: #6f42c1; }
+    .metric-value { font-size: 24px; font-weight: bold; color: #333; }
+    .metric-label { font-size: 12px; color: #666; }
+    .loading { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; text-align: center; padding-top: 20%; }
+    .table-sm th, .table-sm td { font-size: 0.85rem; vertical-align: middle; }
+    .high-impact { background-color: #e6f4ea; color: #1e7e34; font-weight: bold; }
+    .total-row { background-color: #343a40 !important; color: white !important; font-weight: bold; }
+    .detail-label { font-weight: bold; color: #555; font-size: 0.9rem; }
+    .detail-val { font-size: 1.1rem; }
+    .scroll-table { max-height: 300px; overflow-y: auto; }
+    .rank-badge { background-color: #ffc107; color: #000; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
+    .status-badge-on { background-color: #28a745; color: white; font-size: 0.8em; padding: 2px 6px; border-radius: 4px; }
+    .status-badge-off { background-color: #e9ecef; color: #6c757d; font-size: 0.8em; padding: 2px 6px; border-radius: 4px; border: 1px solid #ced4da; }
+    
+    /* 比較表示用 */
+    .compare-up { color: #28a745; font-weight: bold; }
+    .compare-down { color: #dc3545; font-weight: bold; }
+    .compare-badge { font-size: 0.75em; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
+    .compare-badge.up { background-color: #d4edda; color: #155724; }
+    .compare-badge.down { background-color: #f8d7da; color: #721c24; }
+    
+    /* 保存パネル */
+    .save-panel { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+    .save-panel .form-control, .save-panel .form-select { background-color: rgba(255,255,255,0.9); }
+    
+    /* 履歴テーブル */
+    .history-table { font-size: 0.85rem; }
+    .history-table th { background-color: #6f42c1; color: white; position: sticky; top: 0; }
+    
+    @media print { .no-print { display: none !important; } .scroll-table { max-height: none; } }
+  </style>
+</head>
+<body>
+
+<div class="container mt-4">
+  <div class="row mb-4 no-print">
+    <div class="col-12 text-center">
+      <h2>自治体広告運用 統合BIツール v2.0</h2>
+      <p class="text-muted">履歴保存・前月比・前年比・トレンド分析対応</p>
+    </div>
+  </div>
+
+  <div class="card no-print" id="uploadArea">
+    <div class="card-body">
+      <div class="mb-3">
+        <label for="excelFile" class="form-label">管理エクセルファイルをアップロード</label>
+        <input class="form-control" type="file" id="excelFile" accept=".xlsx, .xls">
+      </div>
+      <button onclick="uploadFile()" class="btn btn-primary w-100">分析を開始する</button>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+    <h4 class="mt-3">データを統合・解析中...</h4>
+  </div>
+
+  <div id="dashboard" style="display:none;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3 id="reportTitle">分析レポート</h3>
+      <div class="btn-group no-print">
+        <button onclick="downloadPDF()" class="btn btn-dark">📊 PDFダウンロード</button>
+        <button onclick="downloadExcel()" class="btn btn-success">📗 Excelダウンロード</button>
+      </div>
+    </div>
+
+    <!-- ★★★ 履歴保存パネル ★★★ -->
+    <div class="card no-print" id="savePanel">
+      <div class="card-header save-panel">💾 履歴に保存（前月比・前年比用）</div>
+      <div class="card-body save-panel">
+        <div class="row align-items-end">
+          <div class="col-md-4">
+            <label class="form-label text-white">対象年月</label>
+            <input type="month" id="saveYearMonth" class="form-control">
+          </div>
+          <div class="col-md-4">
+            <button onclick="saveToHistory()" class="btn btn-warning w-100" id="saveBtn">
+              <strong>📥 この月のデータを保存</strong>
+            </button>
+          </div>
+          <div class="col-md-4">
+            <small class="text-white-50">※ 同じ年月は上書き保存されます（暫定→確定の更新OK）</small>
+          </div>
+        </div>
+        <div id="saveMessage" class="mt-2"></div>
+      </div>
+    </div>
+
+    <!-- ★★★ 前月比・前年比パネル ★★★ -->
+    <div class="card" id="comparisonPanel" style="display:none;">
+      <div class="card-header header-history">📈 前月比・前年比サマリー</div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered text-center mb-0">
+            <thead class="table-dark">
+              <tr>
+                <th rowspan="2">指標</th>
+                <th colspan="3">楽天</th>
+                <th colspan="3">チョイス</th>
+                <th colspan="3">合計</th>
+              </tr>
+              <tr>
+                <th>当月</th><th>前月比</th><th>前年比</th>
+                <th>当月</th><th>前月比</th><th>前年比</th>
+                <th>当月</th><th>前月比</th><th>前年比</th>
+              </tr>
+            </thead>
+            <tbody id="comparisonBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ★★★ 12ヶ月トレンドグラフ ★★★ -->
+    <div class="card" id="trendPanel" style="display:none;">
+      <div class="card-header header-history">📊 12ヶ月トレンド</div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-6"><canvas id="trendSalesChart"></canvas></div>
+          <div class="col-md-6"><canvas id="trendRoasChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ★★★ 履歴一覧テーブル ★★★ -->
+    <div class="card" id="historyPanel" style="display:none;">
+      <div class="card-header header-history d-flex justify-content-between align-items-center">
+        <span>📋 保存済み履歴一覧</span>
+        <button class="btn btn-sm btn-light" onclick="toggleHistoryTable()">表示/非表示</button>
+      </div>
+      <div class="card-body scroll-table" id="historyTableWrapper" style="display:none;">
+        <table class="table table-sm table-striped history-table">
+          <thead><tr><th>年月</th><th>更新日時</th><th>楽天売上</th><th>楽天ROAS</th><th>チョイス売上</th><th>チョイスROAS</th><th>合計売上</th><th>合計ROAS</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 全体サマリー -->
+    <div class="card border-dark mb-4">
+      <div class="card-header header-total">👑 広告運用トータルサマリー (楽天 + チョイス)</div>
+      <div class="card-body">
+        <div class="row text-center">
+          <div class="col-md-3"><div class="metric-label">合計寄付額</div><div class="metric-value text-primary" id="totalSales">-</div></div>
+          <div class="col-md-2"><div class="metric-label">消化額 / 予算</div><div class="detail-val"><span id="totalCost">-</span> <span class="small text-muted">/ <span id="totalBudget">-</span></span></div></div>
+          <div class="col-md-2"><div class="metric-label">全体ROAS</div><div class="metric-value" id="totalRoas">-</div></div>
+          <div class="col-md-2"><div class="metric-label">合計獲得数</div><div class="metric-value" id="totalCv">-</div></div>
+          <div class="col-md-3"><div class="metric-label">全体CPA</div><div class="metric-value" id="totalCpa">-</div></div>
+        </div>
+      </div>
+    </div>
+
+    <h4 class="text-danger border-bottom pb-2 mb-3">🔴 楽天RPP広告 詳細レポート</h4>
+    
+    <div class="card">
+      <div class="card-header header-rakuten">📋 【楽天】月次パフォーマンス詳細</div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-4 border-end">
+            <h6 class="text-danger border-bottom pb-2">コスト・流入</h6>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">使用広告費:</span><span class="detail-val" id="rSumCost">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">クリック数:</span><span class="detail-val" id="rSumClicks">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">平均CPC:</span><span class="detail-val" id="rSumCpc">-</span></div>
+            <div class="d-flex justify-content-between"><span class="detail-label">CTR:</span><span class="detail-val" id="rSumCtr">-</span></div>
+          </div>
+          <div class="col-md-4 border-end">
+            <h6 class="text-primary border-bottom pb-2">成果・効率</h6>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">RPP売上:</span><span class="detail-val fw-bold" id="rSumSales">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">獲得件数:</span><span class="detail-val" id="rSumCv">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">ROAS:</span><span class="detail-val fw-bold text-danger" id="rSumRoas">-</span></div>
+            <div class="d-flex justify-content-between"><span class="detail-label">CVR:</span><span class="detail-val" id="rSumCvr">-</span></div>
+          </div>
+          <div class="col-md-4">
+            <h6 class="text-success border-bottom pb-2">新規・既存内訳</h6>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">新規売上:</span><span class="detail-val" id="rSumNewSales">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">新規CV:</span><span class="detail-val" id="rSumNewCv">-</span></div>
+            <hr class="my-2">
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">既存売上:</span><span class="detail-val" id="rSumExSales">-</span></div>
+            <div class="d-flex justify-content-between"><span class="detail-label">既存CV:</span><span class="detail-val" id="rSumExCv">-</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header header-rakuten">📊 RPP貢献度・日次詳細</div>
+      <div class="card-body p-0 scroll-table">
+        <table class="table table-sm table-bordered text-center mb-0">
+          <thead class="table-light"><tr><th>日付</th><th>全体売上</th><th>RPP売上</th><th>貢献率</th><th>CV</th><th>ROAS</th></tr></thead>
+          <tbody id="rakutenTableBody"></tbody>
+          <tfoot id="rakutenTableFoot"></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-md-8"><div class="card"><div class="card-header header-rakuten">日次売上 vs コスト</div><div class="card-body"><canvas id="rakutenChart"></canvas></div></div></div>
+      <div class="col-md-4"><div class="card"><div class="card-header header-rakuten">ROAS推移</div><div class="card-body"><canvas id="rakutenRoasChart"></canvas></div></div></div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header bg-dark text-white">🎉 CV獲得商品 & 流入キーワードランク (クロスチェック)</div>
+      <div class="card-body scroll-table">
+        <table class="table table-sm table-striped">
+          <thead><tr><th>商品名</th><th>件数</th><th>金額</th><th>KWランク</th><th>RPP設定</th><th>KW設定</th></tr></thead>
+          <tbody id="rSoldBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header bg-secondary text-white">📌 現在のRPP出稿リスト</div>
+          <div class="card-body scroll-table"><table class="table table-sm table-striped"><thead><tr><th>商品名</th><th>価格</th><th>CPC</th></tr></thead><tbody id="rppListBody"></tbody></table></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header bg-secondary text-white">🔑 キーワード設定リスト</div>
+          <div class="card-body scroll-table"><table class="table table-sm table-striped"><thead><tr><th>対象商品</th><th>KW</th><th>CPC</th></tr></thead><tbody id="kwListBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header bg-success text-white">💎 次月強化推奨</div>
+          <div class="card-body"><ul id="rAddList" class="list-group list-group-flush"></ul></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header bg-info text-white">🔎 機会損失キーワード</div>
+          <div class="card-body scroll-table"><table class="table table-sm"><thead><tr><th>順位</th><th>KW</th><th>アクセス</th></tr></thead><tbody id="rMissKwBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+    <div class="card mt-3">
+      <div class="card-header bg-secondary text-white">🛠️ [楽天] 運用・作業履歴</div>
+      <div class="card-body scroll-table"><table class="table table-sm"><thead><tr><th>日付</th><th>作業</th><th>詳細</th></tr></thead><tbody id="rHistoryBody"></tbody></table></div>
+    </div>
+
+
+    <h4 class="text-success border-bottom pb-2 mb-3 mt-5">🟢 ふるさとチョイス広告 詳細レポート</h4>
+
+    <div class="card">
+      <div class="card-header header-choice">📋 【チョイス】月次パフォーマンス詳細 (日次集計)</div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-6 border-end">
+            <h6 class="text-danger border-bottom pb-2">コスト・流入</h6>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">使用広告費:</span><span class="detail-val" id="cSumCost">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">予算:</span><span class="detail-val" id="cSumBudget">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">imp (表示回数):</span><span class="detail-val" id="cSumImp">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">クリック数:</span><span class="detail-val" id="cSumClicks">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">平均CPC:</span><span class="detail-val" id="cSumCpc">-</span></div>
+            <div class="d-flex justify-content-between"><span class="detail-label">CTR:</span><span class="detail-val" id="cSumCtr">-</span></div>
+          </div>
+          <div class="col-md-6">
+            <h6 class="text-primary border-bottom pb-2">成果・効率</h6>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">寄付経由額:</span><span class="detail-val fw-bold" id="cSumSales">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">寄付件数 (CV):</span><span class="detail-val" id="cSumCv">-</span></div>
+            <div class="d-flex justify-content-between mb-2"><span class="detail-label">ROAS:</span><span class="detail-val fw-bold text-success" id="cSumRoas">-</span></div>
+            <div class="d-flex justify-content-between"><span class="detail-label">CVR:</span><span class="detail-val" id="cSumCvr">-</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mt-3">
+      <div class="col-md-8"><div class="card"><div class="card-header header-choice">日次推移</div><div class="card-body"><canvas id="choiceChart"></canvas></div></div></div>
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header header-choice">効果の高い商品 Top5</div>
+          <div class="card-body p-0"><ul id="cProdList" class="list-group list-group-flush small"></ul></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header header-choice">🔑 設定キーワード別成果</div>
+      <div class="card-body scroll-table">
+        <table class="table table-sm table-striped">
+          <thead><tr><th>キーワード</th><th>対象商品</th><th>寄付額</th><th>CV</th><th>消化額</th></tr></thead>
+          <tbody id="choiceKeywordBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header bg-secondary text-white">🛠️ [チョイス] 運用・作業履歴</div>
+      <div class="card-body scroll-table"><table class="table table-sm"><thead><tr><th>日付</th><th>作業</th><th>詳細</th></tr></thead><tbody id="cHistoryBody"></tbody></table></div>
+    </div>
+
+    <div class="card mt-5 page-break-avoid">
+      <div class="card-header bg-secondary text-white">📝 統合運用レポート考察 (自動生成)</div>
+      <div class="card-body">
+        <textarea id="observationText" class="form-control" rows="18" readonly style="background-color: #fdfdfd; font-size: 14px; line-height: 1.6;"></textarea>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let rakutenChart = null;
+let rakutenRoasChart = null;
+let choiceChart = null;
+let trendSalesChart = null;
+let trendRoasChart = null;
+let reportData = null;
+
+function uploadFile() {
+  const fileInput = document.getElementById('excelFile');
+  if (fileInput.files.length === 0) { alert("ファイルを選択してください。"); return; }
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('uploadArea').style.display = 'none'; 
+  document.getElementById('dashboard').style.display = 'none';
+
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const base64 = e.target.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(renderDashboard)
+      .withFailureHandler(err => {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('uploadArea').style.display = 'block';
+        alert("エラー: " + err);
+      })
+      .processExcelReport(base64, file.name);
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderDashboard(data) {
+  reportData = data;
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('reportTitle').textContent = `${data.meta.municipality} ${data.meta.period} 統合レポート`;
+  
+  // 保存用年月をセット
+  if (data.meta && data.meta.yearMonth) {
+    document.getElementById('saveYearMonth').value = data.meta.yearMonth.replace('/', '-');
+  }
+  
+  const fmt = (n) => new Intl.NumberFormat('ja-JP').format(Math.round(n));
+  const fmtC = (n) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(Math.round(n));
+
+  // --- 1. 全体サマリー ---
+  const t = data.totalData;
+  document.getElementById('totalSales').textContent = fmtC(t.sales);
+  document.getElementById('totalCost').textContent = fmtC(t.cost);
+  document.getElementById('totalBudget').textContent = fmtC(t.budget);
+  document.getElementById('totalRoas').textContent = t.roas.toFixed(0) + '%';
+  document.getElementById('totalCv').textContent = fmt(t.cv) + '件';
+  document.getElementById('totalCpa').textContent = fmt(t.cpa) + '円';
+
+  // --- 2. 楽天詳細 ---
+  const r = data.rakutenData;
+  const rm = r.monthlySummaryDetails;
+  
+  document.getElementById('rSumCost').textContent = fmtC(rm.cost);
+  document.getElementById('rSumClicks').textContent = fmt(rm.clicks) + "回";
+  document.getElementById('rSumCpc').textContent = fmt(rm.cpc) + "円";
+  document.getElementById('rSumCtr').textContent = rm.ctr.toFixed(2) + "%";
+  document.getElementById('rSumSales').textContent = fmtC(rm.salesTotal);
+  document.getElementById('rSumCv').textContent = fmt(rm.cvTotal) + "件";
+  document.getElementById('rSumRoas').textContent = fmt(rm.roasTotal) + "%";
+  document.getElementById('rSumCvr').textContent = rm.cvrTotal.toFixed(2) + "%";
+  document.getElementById('rSumNewSales').textContent = fmtC(rm.salesNew);
+  document.getElementById('rSumNewCv').textContent = fmt(rm.cvNew) + "件";
+  document.getElementById('rSumExSales').textContent = fmtC(rm.salesExisting);
+  document.getElementById('rSumExCv').textContent = fmt(rm.cvExisting) + "件";
+
+  const rakutenBody = document.getElementById('rakutenTableBody');
+  const rakutenFoot = document.getElementById('rakutenTableFoot');
+  rakutenBody.innerHTML = '';
+  r.contributionAnalysis.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${row.date}</td><td>${fmt(row.storeSales)}</td><td>${fmt(row.rppSales)}</td>
+      <td>${row.contributionRatio.toFixed(1)}%</td><td>${row.rppCv}</td><td>${row.rppCost>0 ? Math.round(row.rppSales/row.rppCost*100) : 0}%</td>`;
+    rakutenBody.appendChild(tr);
+  });
+  const ov = r.rppOverallContribution;
+  rakutenFoot.innerHTML = `<tr class="total-row"><td>月次合計</td><td>${fmt(ov.totalStoreSales)}</td><td>${fmt(ov.totalRppSales)}</td><td>${ov.ratio.toFixed(2)}%</td><td>${ov.totalRppCv}</td><td>${ov.totalRppCvr ? ov.totalRppCvr.toFixed(2) : '-'}%</td></tr>`;
+
+  const rSoldBody = document.getElementById('rSoldBody');
+  rSoldBody.innerHTML = '';
+  r.soldProductsList.forEach(item => {
+    let rankDisplay = item.rank !== '-' ? `<span class="rank-badge">${item.rank}位</span>` : '-';
+    let rppBadge = item.isRpp ? '<span class="status-badge-on">済</span>' : '<span class="status-badge-off">未</span>';
+    let kwBadge = item.isKw ? '<span class="status-badge-on">済</span>' : '<span class="status-badge-off">未</span>';
+    rSoldBody.innerHTML += `<tr><td>${item.name.substring(0,20)}...<br><small>${item.id}</small></td><td>${item.count}</td><td>${fmt(item.amount)}</td><td>${rankDisplay}</td><td>${rppBadge}</td><td>${kwBadge}</td></tr>`;
+  });
+
+  const rppListBody = document.getElementById('rppListBody');
+  rppListBody.innerHTML = '';
+  r.activeRppList.forEach(i => { rppListBody.innerHTML += `<tr><td>${i.name.substring(0,20)}...</td><td>${fmt(i.price)}</td><td>${i.cpc}</td></tr>`; });
+
+  const kwListBody = document.getElementById('kwListBody');
+  kwListBody.innerHTML = '';
+  r.activeKeywordList.forEach(i => { kwListBody.innerHTML += `<tr><td>${i.name.substring(0,10)}...</td><td>${i.keyword}</td><td>${i.cpc}</td></tr>`; });
+
+  const rAddList = document.getElementById('rAddList');
+  rAddList.innerHTML = '';
+  r.recommendations.add.slice(0,5).forEach(i => {
+    const name = i.name || '商品名不明';
+    rAddList.innerHTML += `<li class="list-group-item d-flex justify-content-between align-items-start"><div style="flex:1; margin-right:10px;">${name.substring(0,35)}${name.length > 35 ? '...' : ''}</div><span class="badge bg-success text-nowrap">ROAS:${i.roas}%</span></li>`;
+  });
+  
+  const rMissKwBody = document.getElementById('rMissKwBody');
+  rMissKwBody.innerHTML = '';
+  r.missingKeywords.slice(0,5).forEach(k => rMissKwBody.innerHTML += `<tr><td>${k.rank}</td><td>${k.keyword}</td><td>${fmt(k.users)}</td></tr>`);
+
+  const rHistBody = document.getElementById('rHistoryBody');
+  rHistBody.innerHTML = '';
+  r.workHistory.forEach(h => rHistBody.innerHTML += `<tr><td>${h.date}</td><td>${h.type}</td><td>${h.detail}</td></tr>`);
+
+  // --- 3. チョイス詳細 ---
+  const c = data.choiceData;
+  const cm = c.monthlySummaryDetails;
+  
+  document.getElementById('cSumCost').textContent = fmtC(cm.cost);
+  document.getElementById('cSumBudget').textContent = fmtC(c.budgetAnalysis.budget);
+  document.getElementById('cSumImp').textContent = fmt(cm.imp);
+  document.getElementById('cSumClicks').textContent = fmt(cm.clicks);
+  document.getElementById('cSumCpc').textContent = fmt(cm.cpc) + "円";
+  document.getElementById('cSumCtr').textContent = cm.ctr.toFixed(2) + "%";
+  document.getElementById('cSumSales').textContent = fmtC(cm.sales);
+  document.getElementById('cSumCv').textContent = fmt(cm.cv) + "件";
+  document.getElementById('cSumRoas').textContent = cm.roas.toFixed(0) + "%";
+  document.getElementById('cSumCvr').textContent = cm.cvr.toFixed(2) + "%";
+
+  const cProdList = document.getElementById('cProdList');
+  cProdList.innerHTML = '';
+  c.productList.slice(0,5).forEach(p => {
+    cProdList.innerHTML += `<li class="list-group-item d-flex justify-content-between"><div>${p.name.substring(0,12)}...</div><span>${fmt(p.sales)}円</span></li>`;
+  });
+
+  const choiceKwBody = document.getElementById('choiceKeywordBody');
+  choiceKwBody.innerHTML = '';
+  c.keywordList.forEach(k => {
+    choiceKwBody.innerHTML += `<tr><td>${k.keyword}</td><td>${k.product.substring(0,15)}...</td><td>${fmt(k.sales)}</td><td>${k.cv}</td><td>${fmt(k.cost)}</td></tr>`;
+  });
+
+  const cHistBody = document.getElementById('cHistoryBody');
+  cHistBody.innerHTML = '';
+  c.workHistory.forEach(h => cHistBody.innerHTML += `<tr><td>${h.date}</td><td>${h.type}</td><td>${h.detail}</td></tr>`);
+
+  drawCharts(r.contributionAnalysis, c.chartData);
+  generateText(data);
+  
+  // 履歴データがあれば表示
+  if (data.historyData && data.historyData.exists && data.meta && data.meta.yearMonth) {
+    renderHistoryPanel(data.historyData, data.meta.yearMonth);
+  }
+}
+
+// ★★★ 履歴保存処理 ★★★
+function saveToHistory() {
+  const yearMonthInput = document.getElementById('saveYearMonth').value;
+  if (!yearMonthInput) {
+    alert('対象年月を選択してください');
+    return;
+  }
+  
+  const yearMonth = yearMonthInput.replace('-', '/');
+  const r = reportData.rakutenData;
+  const c = reportData.choiceData;
+  const t = reportData.totalData;
+  
+  const summaryData = {
+    rakuten: {
+      budget: r.budgetAnalysis.budget,
+      cost: r.monthlySummaryDetails.cost,
+      sales: r.monthlySummaryDetails.salesTotal,
+      cv: r.monthlySummaryDetails.cvTotal,
+      roas: r.monthlySummaryDetails.roasTotal,
+      cpa: r.monthlySummaryDetails.cvTotal > 0 ? r.monthlySummaryDetails.cost / r.monthlySummaryDetails.cvTotal : 0,
+      clicks: r.monthlySummaryDetails.clicks,
+      ctr: r.monthlySummaryDetails.ctr,
+      cvr: r.monthlySummaryDetails.cvrTotal
+    },
+    choice: {
+      budget: c.budgetAnalysis.budget,
+      cost: c.monthlySummaryDetails.cost,
+      sales: c.monthlySummaryDetails.sales,
+      cv: c.monthlySummaryDetails.cv,
+      roas: c.monthlySummaryDetails.roas,
+      cpa: c.monthlySummaryDetails.cv > 0 ? c.monthlySummaryDetails.cost / c.monthlySummaryDetails.cv : 0,
+      clicks: c.monthlySummaryDetails.clicks,
+      imp: c.monthlySummaryDetails.imp,
+      ctr: c.monthlySummaryDetails.ctr,
+      cvr: c.monthlySummaryDetails.cvr
+    },
+    total: {
+      budget: t.budget,
+      cost: t.cost,
+      sales: t.sales,
+      cv: t.cv,
+      roas: t.roas,
+      cpa: t.cpa
+    }
+  };
+  
+  document.getElementById('saveBtn').disabled = true;
+  document.getElementById('saveBtn').textContent = '保存中...';
+  
+  google.script.run
+    .withSuccessHandler(result => {
+      document.getElementById('saveBtn').disabled = false;
+      document.getElementById('saveBtn').innerHTML = '<strong>📥 この月のデータを保存</strong>';
+      
+      const msgDiv = document.getElementById('saveMessage');
+      if (result.success) {
+        msgDiv.innerHTML = `<div class="alert alert-success py-1">${result.message}</div>`;
+        // 履歴を再取得して表示更新
+        google.script.run.withSuccessHandler(histData => {
+          reportData.historyData = histData;
+          if (reportData.meta && reportData.meta.yearMonth) {
+            renderHistoryPanel(histData, reportData.meta.yearMonth);
+          }
+        }).getHistoryData();
+      } else {
+        msgDiv.innerHTML = `<div class="alert alert-danger py-1">${result.message}</div>`;
+      }
+    })
+    .withFailureHandler(err => {
+      document.getElementById('saveBtn').disabled = false;
+      document.getElementById('saveBtn').innerHTML = '<strong>📥 この月のデータを保存</strong>';
+      document.getElementById('saveMessage').innerHTML = `<div class="alert alert-danger py-1">エラー: ${err}</div>`;
+    })
+    .saveToHistory(yearMonth, summaryData);
+}
+
+// ★★★ 履歴パネル描画 ★★★
+function renderHistoryPanel(historyData, currentYearMonth) {
+  if (!historyData.records || historyData.records.length === 0) {
+    document.getElementById('historyPanel').style.display = 'none';
+    document.getElementById('comparisonPanel').style.display = 'none';
+    document.getElementById('trendPanel').style.display = 'none';
+    return;
+  }
+  
+  const fmt = (n) => new Intl.NumberFormat('ja-JP').format(Math.round(n || 0));
+  const records = historyData.records;
+  
+  // 履歴一覧テーブル
+  document.getElementById('historyPanel').style.display = 'block';
+  const histBody = document.getElementById('historyBody');
+  histBody.innerHTML = '';
+  records.forEach(rec => {
+    histBody.innerHTML += `<tr>
+      <td><strong>${rec.yearMonth}</strong></td>
+      <td>${rec.updatedAt}</td>
+      <td>${fmt(rec.rakuten.sales)}円</td>
+      <td>${fmt(rec.rakuten.roas)}%</td>
+      <td>${fmt(rec.choice.sales)}円</td>
+      <td>${fmt(rec.choice.roas)}%</td>
+      <td><strong>${fmt(rec.total.sales)}円</strong></td>
+      <td><strong>${fmt(rec.total.roas)}%</strong></td>
+    </tr>`;
+  });
+  
+  // 前月比・前年比の計算
+  if (currentYearMonth && records.length > 0) {
+    renderComparisonPanel(records, currentYearMonth);
+  }
+  
+  // 12ヶ月トレンド
+  if (records.length >= 2) {
+    renderTrendCharts(records);
+  }
+}
+
+// ★★★ 前月比・前年比パネル ★★★
+function renderComparisonPanel(records, currentYearMonth) {
+  const [year, month] = currentYearMonth.split('/').map(Number);
+  
+  // 前月
+  let prevMonth = month - 1;
+  let prevMonthYear = year;
+  if (prevMonth === 0) { prevMonth = 12; prevMonthYear = year - 1; }
+  const prevMonthKey = `${prevMonthYear}/${String(prevMonth).padStart(2, '0')}`;
+  
+  // 前年同月
+  const prevYearKey = `${year - 1}/${String(month).padStart(2, '0')}`;
+  
+  // 当月データ（現在表示中のデータ）
+  const current = {
+    rakuten: {
+      sales: reportData.rakutenData.monthlySummaryDetails.salesTotal,
+      cv: reportData.rakutenData.monthlySummaryDetails.cvTotal,
+      roas: reportData.rakutenData.monthlySummaryDetails.roasTotal,
+      cost: reportData.rakutenData.monthlySummaryDetails.cost
+    },
+    choice: {
+      sales: reportData.choiceData.monthlySummaryDetails.sales,
+      cv: reportData.choiceData.monthlySummaryDetails.cv,
+      roas: reportData.choiceData.monthlySummaryDetails.roas,
+      cost: reportData.choiceData.monthlySummaryDetails.cost
+    },
+    total: reportData.totalData
+  };
+  
+  const prevMonthData = records.find(r => r.yearMonth === prevMonthKey);
+  const prevYearData = records.find(r => r.yearMonth === prevYearKey);
+  
+  if (!prevMonthData && !prevYearData) {
+    document.getElementById('comparisonPanel').style.display = 'none';
+    return;
+  }
+  
+  document.getElementById('comparisonPanel').style.display = 'block';
+  
+  const fmt = (n) => new Intl.NumberFormat('ja-JP').format(Math.round(n || 0));
+  
+  const calcDiff = (curr, prev) => {
+    if (!prev || prev === 0) return '-';
+    const diff = ((curr - prev) / prev) * 100;
+    const cls = diff >= 0 ? 'up' : 'down';
+    const sign = diff >= 0 ? '+' : '';
+    return `<span class="compare-badge ${cls}">${sign}${diff.toFixed(1)}%</span>`;
+  };
+  
+  const metrics = [
+    { label: '売上/寄付額', key: 'sales', suffix: '円' },
+    { label: 'CV件数', key: 'cv', suffix: '件' },
+    { label: 'ROAS', key: 'roas', suffix: '%' },
+    { label: '消化額', key: 'cost', suffix: '円' }
+  ];
+  
+  let html = '';
+  metrics.forEach(m => {
+    html += `<tr>
+      <td><strong>${m.label}</strong></td>
+      <td>${fmt(current.rakuten[m.key])}${m.suffix}</td>
+      <td>${prevMonthData ? calcDiff(current.rakuten[m.key], prevMonthData.rakuten[m.key]) : '-'}</td>
+      <td>${prevYearData ? calcDiff(current.rakuten[m.key], prevYearData.rakuten[m.key]) : '-'}</td>
+      <td>${fmt(current.choice[m.key])}${m.suffix}</td>
+      <td>${prevMonthData ? calcDiff(current.choice[m.key], prevMonthData.choice[m.key]) : '-'}</td>
+      <td>${prevYearData ? calcDiff(current.choice[m.key], prevYearData.choice[m.key]) : '-'}</td>
+      <td><strong>${fmt(current.total[m.key])}${m.suffix}</strong></td>
+      <td>${prevMonthData ? calcDiff(current.total[m.key], prevMonthData.total[m.key]) : '-'}</td>
+      <td>${prevYearData ? calcDiff(current.total[m.key], prevYearData.total[m.key]) : '-'}</td>
+    </tr>`;
+  });
+  
+  document.getElementById('comparisonBody').innerHTML = html;
+}
+
+// ★★★ 12ヶ月トレンドグラフ ★★★
+function renderTrendCharts(records) {
+  document.getElementById('trendPanel').style.display = 'block';
+  
+  // 最新12ヶ月を取得（古い順にソート）
+  const sorted = [...records].sort((a, b) => a.yearMonth.localeCompare(b.yearMonth)).slice(-12);
+  
+  const labels = sorted.map(r => r.yearMonth);
+  const rakutenSales = sorted.map(r => r.rakuten.sales || 0);
+  const choiceSales = sorted.map(r => r.choice.sales || 0);
+  const totalSales = sorted.map(r => r.total.sales || 0);
+  const rakutenRoas = sorted.map(r => r.rakuten.roas || 0);
+  const choiceRoas = sorted.map(r => r.choice.roas || 0);
+  const totalRoas = sorted.map(r => r.total.roas || 0);
+  
+  // 売上トレンド
+  const ctxSales = document.getElementById('trendSalesChart').getContext('2d');
+  if (trendSalesChart) trendSalesChart.destroy();
+  trendSalesChart = new Chart(ctxSales, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: '楽天', data: rakutenSales, backgroundColor: '#BF0000', stack: 'stack' },
+        { label: 'チョイス', data: choiceSales, backgroundColor: '#00B900', stack: 'stack' },
+        { label: '合計', data: totalSales, type: 'line', borderColor: '#2c3e50', borderWidth: 2, fill: false }
+      ]
+    },
+    options: { responsive: true, animation: false, plugins: { title: { display: true, text: '売上推移 (12ヶ月)' } } }
+  });
+  
+  // ROASトレンド
+  const ctxRoas = document.getElementById('trendRoasChart').getContext('2d');
+  if (trendRoasChart) trendRoasChart.destroy();
+  trendRoasChart = new Chart(ctxRoas, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: '楽天', data: rakutenRoas, borderColor: '#BF0000', fill: false },
+        { label: 'チョイス', data: choiceRoas, borderColor: '#00B900', fill: false },
+        { label: '合計', data: totalRoas, borderColor: '#6f42c1', borderWidth: 3, fill: false }
+      ]
+    },
+    options: { responsive: true, animation: false, plugins: { title: { display: true, text: 'ROAS推移 (12ヶ月)' } } }
+  });
+}
+
+function toggleHistoryTable() {
+  const wrapper = document.getElementById('historyTableWrapper');
+  wrapper.style.display = wrapper.style.display === 'none' ? 'block' : 'none';
+}
+
+function drawCharts(rData, cData) {
+  const ctxR = document.getElementById('rakutenChart').getContext('2d');
+  if(rakutenChart) rakutenChart.destroy();
+  rakutenChart = new Chart(ctxR, {
+    type: 'bar',
+    data: {
+      labels: rData.map(d=>d.date),
+      datasets: [
+        { label: '売上', data: rData.map(d=>d.rppSales), backgroundColor: '#BF0000', order:1 },
+        { label: 'コスト', data: rData.map(d=>d.rppCost), type:'line', borderColor:'#333', order:0 }
+      ]
+    }, options: { responsive: true, animation: false }
+  });
+
+  const ctxRR = document.getElementById('rakutenRoasChart').getContext('2d');
+  if(rakutenRoasChart) rakutenRoasChart.destroy();
+  rakutenRoasChart = new Chart(ctxRR, {
+    type: 'line',
+    data: {
+      labels: rData.map(d=>d.date),
+      datasets: [{ label: 'ROAS', data: rData.map(d=>d.rppCost>0?d.rppSales/d.rppCost*100:0), borderColor: 'orange', fill: true }]
+    }, options: { responsive: true, animation: false }
+  });
+
+  const ctxC = document.getElementById('choiceChart').getContext('2d');
+  if(choiceChart) choiceChart.destroy();
+  choiceChart = new Chart(ctxC, {
+    type: 'bar',
+    data: {
+      labels: cData.map(d=>d.date),
+      datasets: [
+        { label: '寄付額', data: cData.map(d=>d.sales), backgroundColor: '#00B900', order:1 },
+        { label: '消化額', data: cData.map(d=>d.cost), type:'line', borderColor:'#333', order:0 }
+      ]
+    }, options: { responsive: true, animation: false }
+  });
+}
+
+function generateText(data) {
+  const t = data.totalData;
+  const r = data.rakutenData;
+  const c = data.choiceData;
+  const fmt = (n) => new Intl.NumberFormat('ja-JP').format(Math.round(n));
+
+  let text = `【${data.meta.period} 広告運用統合レポート】\n\n`;
+  text += `■ 全体サマリー\n`;
+  text += `全体予算${fmt(t.budget)}円に対し、実績${fmt(t.cost)}円を運用。\n`;
+  text += `合計${fmt(t.sales)}円の寄付（${fmt(t.cv)}件）を獲得し、全体ROASは${t.roas.toFixed(0)}%でした。\n\n`;
+
+  text += `■ 楽天RPP広告\n`;
+  text += `売上${fmt(r.monthlySummaryDetails.salesTotal)}円、ROAS${fmt(r.monthlySummaryDetails.roasTotal)}%で着地。\n`;
+  text += `新規ユーザー獲得数は${fmt(r.monthlySummaryDetails.cvNew)}件でした。\n`;
+  if(r.workHistory.length > 0) {
+    text += `今月は「${r.workHistory[0].type}」など計${r.workHistory.length}件の調整を実施しました。\n`;
+  }
+  text += `特に「${r.soldProductsList.length > 0 ? r.soldProductsList[0].name.substring(0,10) : '商品'}」が${r.soldProductsList.length > 0 ? r.soldProductsList[0].count : 0}件獲得と貢献しています。\n\n`;
+
+  text += `■ ふるさとチョイス広告\n`;
+  text += `寄付額${fmt(c.monthlySummaryDetails.sales)}円、ROAS${fmt(c.monthlySummaryDetails.roas)}%（消化額${fmt(c.monthlySummaryDetails.cost)}円）となりました。\n`;
+  text += `CTRは${c.monthlySummaryDetails.ctr.toFixed(2)}%、CVRは${c.monthlySummaryDetails.cvr.toFixed(2)}%で推移しました。\n`;
+  if(c.workHistory.length > 0) {
+    text += `チョイス側では「${c.workHistory[0].type}」等の調整を実施済みです。\n`;
+  }
+  
+  // 履歴データがあれば前月比コメント追加
+  if (data.historyData && data.historyData.records && data.historyData.records.length > 0) {
+    text += `\n■ 履歴データ\n`;
+    text += `過去${data.historyData.records.length}ヶ月分のデータが保存されています。\n`;
+  }
+
+  document.getElementById('observationText').value = text;
+}
+
+function downloadPDF() {
+  const element = document.getElementById('dashboard');
+  html2pdf().set({ margin: 0.2, filename: 'Total_Report.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' } }).from(element).save();
+}
+
+function downloadExcel() {
+  if (!reportData) return;
+  const wb = XLSX.utils.book_new();
+  
+  const summaryData = [
+    ["項目", "楽天", "チョイス", "全体"],
+    ["予算", reportData.rakutenData.budgetAnalysis.budget, reportData.choiceData.budgetAnalysis.budget, reportData.totalData.budget],
+    ["消化額", reportData.rakutenData.monthlySummaryDetails.cost, reportData.choiceData.monthlySummaryDetails.cost, reportData.totalData.cost],
+    ["売上/寄付額", reportData.rakutenData.monthlySummaryDetails.salesTotal, reportData.choiceData.monthlySummaryDetails.sales, reportData.totalData.sales],
+    ["ROAS(%)", reportData.rakutenData.monthlySummaryDetails.roasTotal, reportData.choiceData.monthlySummaryDetails.roas, reportData.totalData.roas],
+    ["CV(件)", reportData.rakutenData.monthlySummaryDetails.cvTotal, reportData.choiceData.monthlySummaryDetails.cv, reportData.totalData.cv]
+  ];
+  const wsSum = XLSX.utils.aoa_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(wb, wsSum, "サマリー");
+
+  const wsRak = XLSX.utils.json_to_sheet(reportData.rakutenData.contributionAnalysis);
+  XLSX.utils.book_append_sheet(wb, wsRak, "楽天日次");
+
+  const wsCho = XLSX.utils.json_to_sheet(reportData.choiceData.chartData);
+  XLSX.utils.book_append_sheet(wb, wsCho, "チョイス日次");
+
+  const wsRakHist = XLSX.utils.json_to_sheet(reportData.rakutenData.workHistory);
+  XLSX.utils.book_append_sheet(wb, wsRakHist, "楽天履歴");
+
+  const wsChoHist = XLSX.utils.json_to_sheet(reportData.choiceData.workHistory);
+  XLSX.utils.book_append_sheet(wb, wsChoHist, "チョイス履歴");
+
+  XLSX.writeFile(wb, `Kumano_Report_${reportData.meta.period}.xlsx`);
+}
+</script>
+</body>
+</html>
