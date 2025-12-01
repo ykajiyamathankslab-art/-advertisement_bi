@@ -258,6 +258,58 @@
       <div class="card-body scroll-table"><table class="table table-sm"><thead><tr><th>日付</th><th>作業</th><th>詳細</th></tr></thead><tbody id="rHistoryBody"></tbody></table></div>
     </div>
 
+    <!-- ★★★ 楽天 vs チョイス 比較セクション ★★★ -->
+    <h4 class="border-bottom pb-2 mb-3 mt-5" style="color: #6f42c1;">🔴🟢 楽天 vs チョイス CV獲得商品 比較</h4>
+    
+    <div class="row">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header header-rakuten">🔴 楽天 CV獲得商品 Top10</div>
+          <div class="card-body scroll-table p-0">
+            <table class="table table-sm table-striped mb-0">
+              <thead class="table-light"><tr><th>#</th><th>商品名</th><th>CV</th><th>金額</th></tr></thead>
+              <tbody id="compareRakutenBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header header-choice">🟢 チョイス CV獲得商品 Top10</div>
+          <div class="card-body scroll-table p-0">
+            <table class="table table-sm table-striped mb-0">
+              <thead class="table-light"><tr><th>#</th><th>商品名</th><th>CV</th><th>金額</th></tr></thead>
+              <tbody id="compareChoiceBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header" style="background-color: #6f42c1; color: white;">📊 CV獲得商品 サマリー比較</div>
+      <div class="card-body">
+        <div class="row text-center">
+          <div class="col-md-3">
+            <div class="metric-label">楽天 CV商品数</div>
+            <div class="metric-value text-danger" id="compareRakutenCount">-</div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-label">楽天 CV合計金額</div>
+            <div class="metric-value text-danger" id="compareRakutenTotal">-</div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-label">チョイス CV商品数</div>
+            <div class="metric-value text-success" id="compareChoiceCount">-</div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-label">チョイス CV合計金額</div>
+            <div class="metric-value text-success" id="compareChoiceTotal">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
 
     <h4 class="text-success border-bottom pb-2 mb-3 mt-5">🟢 ふるさとチョイス広告 詳細レポート</h4>
 
@@ -292,6 +344,16 @@
           <div class="card-header header-choice">効果の高い商品 Top5</div>
           <div class="card-body p-0"><ul id="cProdList" class="list-group list-group-flush small"></ul></div>
         </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header bg-dark text-white">🎉 [チョイス] CV獲得商品一覧</div>
+      <div class="card-body scroll-table">
+        <table class="table table-sm table-striped">
+          <thead><tr><th>商品名</th><th>CV件数</th><th>寄付額</th><th>消化額</th><th>ROAS</th></tr></thead>
+          <tbody id="cSoldBody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -456,6 +518,24 @@ function renderDashboard(data) {
     cProdList.innerHTML += `<li class="list-group-item d-flex justify-content-between"><div>${p.name.substring(0,12)}...</div><span>${fmt(p.sales)}円</span></li>`;
   });
 
+  // チョイス CV獲得商品テーブル
+  const cSoldBody = document.getElementById('cSoldBody');
+  cSoldBody.innerHTML = '';
+  const choiceCvProducts = c.productList.filter(p => p.cv > 0);
+  choiceCvProducts.forEach(p => {
+    const name = p.name || '商品名不明';
+    cSoldBody.innerHTML += `<tr>
+      <td>${name.substring(0,30)}${name.length > 30 ? '...' : ''}<br><small class="text-muted">ID: ${p.id}</small></td>
+      <td><strong>${p.cv}</strong>件</td>
+      <td>${fmt(p.sales)}円</td>
+      <td>${fmt(p.cost)}円</td>
+      <td>${fmt(p.roas)}%</td>
+    </tr>`;
+  });
+  if (choiceCvProducts.length === 0) {
+    cSoldBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">CV獲得商品なし</td></tr>';
+  }
+
   const choiceKwBody = document.getElementById('choiceKeywordBody');
   choiceKwBody.innerHTML = '';
   c.keywordList.forEach(k => {
@@ -465,6 +545,9 @@ function renderDashboard(data) {
   const cHistBody = document.getElementById('cHistoryBody');
   cHistBody.innerHTML = '';
   c.workHistory.forEach(h => cHistBody.innerHTML += `<tr><td>${h.date}</td><td>${h.type}</td><td>${h.detail}</td></tr>`);
+
+  // ★★★ 楽天 vs チョイス 比較セクション ★★★
+  renderComparisonSection(r.soldProductsList, choiceCvProducts);
 
   drawCharts(r.contributionAnalysis, c.chartData);
   generateText(data);
@@ -590,6 +673,57 @@ function renderHistoryPanel(historyData, currentYearMonth) {
   if (records.length >= 2) {
     renderTrendCharts(records);
   }
+}
+
+// ★★★ 楽天 vs チョイス CV商品比較セクション ★★★
+function renderComparisonSection(rakutenProducts, choiceProducts) {
+  const fmt = (n) => new Intl.NumberFormat('ja-JP').format(Math.round(n || 0));
+  const fmtC = (n) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(Math.round(n || 0));
+  
+  // 楽天側
+  const compareRakutenBody = document.getElementById('compareRakutenBody');
+  compareRakutenBody.innerHTML = '';
+  const rakutenTop10 = rakutenProducts.slice(0, 10);
+  rakutenTop10.forEach((item, idx) => {
+    const name = item.name || '商品名不明';
+    compareRakutenBody.innerHTML += `<tr>
+      <td><span class="badge bg-danger">${idx + 1}</span></td>
+      <td>${name.substring(0, 25)}${name.length > 25 ? '...' : ''}</td>
+      <td><strong>${item.count || 0}</strong>件</td>
+      <td>${fmt(item.amount || 0)}円</td>
+    </tr>`;
+  });
+  if (rakutenTop10.length === 0) {
+    compareRakutenBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">CV獲得商品なし</td></tr>';
+  }
+  
+  // チョイス側
+  const compareChoiceBody = document.getElementById('compareChoiceBody');
+  compareChoiceBody.innerHTML = '';
+  const choiceTop10 = choiceProducts.slice(0, 10);
+  choiceTop10.forEach((item, idx) => {
+    const name = item.name || '商品名不明';
+    compareChoiceBody.innerHTML += `<tr>
+      <td><span class="badge bg-success">${idx + 1}</span></td>
+      <td>${name.substring(0, 25)}${name.length > 25 ? '...' : ''}</td>
+      <td><strong>${item.cv || 0}</strong>件</td>
+      <td>${fmt(item.sales || 0)}円</td>
+    </tr>`;
+  });
+  if (choiceTop10.length === 0) {
+    compareChoiceBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">CV獲得商品なし</td></tr>';
+  }
+  
+  // サマリー
+  const rakutenCvCount = rakutenProducts.length;
+  const rakutenCvTotal = rakutenProducts.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const choiceCvCount = choiceProducts.length;
+  const choiceCvTotal = choiceProducts.reduce((sum, p) => sum + (p.sales || 0), 0);
+  
+  document.getElementById('compareRakutenCount').textContent = rakutenCvCount + '商品';
+  document.getElementById('compareRakutenTotal').textContent = fmtC(rakutenCvTotal);
+  document.getElementById('compareChoiceCount').textContent = choiceCvCount + '商品';
+  document.getElementById('compareChoiceTotal').textContent = fmtC(choiceCvTotal);
 }
 
 // ★★★ 前月比・前年比パネル ★★★
